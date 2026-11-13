@@ -46,7 +46,8 @@ class SystemProperties {
   // We rely on the static SystemProperties in libc to be placed in .bss and zero initialized.
   SystemProperties() = default;
   // Special constructor for testing that also zero initializes the important members.
-  explicit SystemProperties(bool initialized) : initialized_(initialized) {
+  explicit SystemProperties(bool initialized)
+      : initialized_(initialized), use_nothing_camera_identity_(false) {
   }
 
   BIONIC_DISALLOW_COPY_AND_ASSIGN(SystemProperties);
@@ -91,6 +92,7 @@ class SystemProperties {
 
   bool initialized_;
   bool use_appcompat_override_;
+  bool use_nothing_camera_identity_;
   PropertiesFilename properties_filename_;
   PropertiesFilename appcompat_filename_;
 };

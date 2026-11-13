@@ -67,6 +67,8 @@ class SystemPropertiesTest : public SystemProperties {
 
   const char* get_real_sysprop_dir() const { return real_sysprop_dir.c_str(); }
 
+  void EnableNothingCameraIdentityForTest() { use_nothing_camera_identity_ = true; }
+
   std::string appcompat_path;
   std::string mount_path;
   std::string real_sysprop_dir = "/dev/__properties__";
@@ -144,6 +146,70 @@ TEST(properties, __system_property_add) {
 #else // __BIONIC__
     GTEST_SKIP() << "bionic-only test";
 #endif // __BIONIC__
+}
+
+TEST(properties, nothing_camera_identity) {
+#if defined(__BIONIC__)
+  SystemPropertiesTest system_properties;
+  ASSERT_TRUE(system_properties.valid());
+
+  const struct {
+    const char* name;
+    const char* identity_name;
+    const char* identity;
+  } properties[] = {
+      {"ro.product.device", "ro.vendor.nothing.camera.identity.device", "Asteroids"},
+      {"ro.product.model", "ro.vendor.nothing.camera.identity.model", "A059"},
+      {"ro.product.brand", "ro.vendor.nothing.camera.identity.brand", "Nothing"},
+  };
+  char value[PROP_VALUE_MAX];
+  for (const auto& property : properties) {
+    ASSERT_EQ(0, system_properties.Add(property.name, strlen(property.name), "spoofed", 7));
+    ASSERT_EQ(0, system_properties.Add(property.identity_name, strlen(property.identity_name),
+                                      property.identity, strlen(property.identity)));
+    system_properties.Get(property.name, value);
+    ASSERT_STREQ("spoofed", value);
+  }
+  ASSERT_EQ(0, system_properties.Add("ro.build.fingerprint", 20, "unchanged", 9));
+
+  system_properties.EnableNothingCameraIdentityForTest();
+  for (const auto& property : properties) {
+    system_properties.Get(property.name, value);
+    ASSERT_STREQ(property.identity, value);
+    const prop_info* pi = system_properties.Find(property.name);
+    ASSERT_NE(nullptr, pi);
+    system_properties.ReadCallback(pi, [](void* cookie, const char*, const char* v, uint32_t) {
+      strcpy(static_cast<char*>(cookie), v);
+    }, value);
+    ASSERT_STREQ(property.identity, value);
+    // Direct alias reads must not recurse.
+    system_properties.Get(property.identity_name, value);
+    ASSERT_STREQ(property.identity, value);
+  }
+  system_properties.Get("ro.build.fingerprint", value);
+  ASSERT_STREQ("unchanged", value);
+#else
+  GTEST_SKIP() << "bionic-only test";
+#endif
+}
+
+TEST(properties, nothing_camera_identity_missing_alias) {
+#if defined(__BIONIC__)
+  SystemPropertiesTest system_properties;
+  ASSERT_TRUE(system_properties.valid());
+  ASSERT_EQ(0, system_properties.Add("ro.product.device", 17, "original", 8));
+  ASSERT_EQ(0, system_properties.Add("ro.product.model", 16, "original", 8));
+  const char* empty_alias = "ro.vendor.nothing.camera.identity.model";
+  ASSERT_EQ(0, system_properties.Add(empty_alias, strlen(empty_alias), "", 0));
+  system_properties.EnableNothingCameraIdentityForTest();
+  char value[PROP_VALUE_MAX];
+  system_properties.Get("ro.product.device", value);
+  ASSERT_STREQ("original", value);
+  system_properties.Get("ro.product.model", value);
+  ASSERT_STREQ("original", value);
+#else
+  GTEST_SKIP() << "bionic-only test";
+#endif
 }
 
 TEST(properties, __system_property_add_appcompat) {

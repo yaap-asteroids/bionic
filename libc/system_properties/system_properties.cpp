@@ -53,6 +53,7 @@
 #define SERIAL_VALUE_LEN(serial) ((serial) >> 24)
 #define APPCOMPAT_PREFIX "ro.appcompat_override."
 #define APPCOMPAT_OVERRIDE_ENV_VAR "BIONIC_APPCOMPAT_OVERRIDE"
+#define NOTHING_CAMERA_IDENTITY_ENV_VAR "BIONIC_NOTHING_CAMERA_IDENTITY"
 
 static bool is_dir(const char* pathname) {
   struct stat info;
@@ -80,6 +81,7 @@ bool SystemProperties::Init(const char* filename) {
   if (getenv(APPCOMPAT_OVERRIDE_ENV_VAR) != nullptr) {
     use_appcompat_override_ = true;
   }
+  use_nothing_camera_identity_ = getenv(NOTHING_CAMERA_IDENTITY_ENV_VAR) != nullptr;
 
   initialized_ = true;
   return true;
@@ -144,6 +146,11 @@ bool SystemProperties::AreaInit(const char* filename, bool* fsetxattr_failed,
 
 bool SystemProperties::EnableOverrides() {
   CHECK(initialized_);
+  use_nothing_camera_identity_ = getenv(NOTHING_CAMERA_IDENTITY_ENV_VAR) != nullptr;
+  if (use_nothing_camera_identity_) {
+    // Camera compatibility must not opt in to unrelated appcompat properties.
+    return true;
+  }
   use_appcompat_override_ = true;
   // this putenv is safe as it's only called in the single-threaded zygote and aims to send info
   // to the child processes only
@@ -168,6 +175,25 @@ uint32_t SystemProperties::AreaSerial() {
 const prop_info* SystemProperties::Find(const char* name) {
   if (!initialized_) {
     return nullptr;
+  }
+
+  // Nothing Camera selects its sensor configuration from these properties, not just Build.
+  if (use_nothing_camera_identity_) {
+    static constexpr struct {
+      const char* name;
+      const char* identity_name;
+    } identity_props[] = {
+        {"ro.product.device", "ro.vendor.nothing.camera.identity.device"},
+        {"ro.product.model", "ro.vendor.nothing.camera.identity.model"},
+        {"ro.product.brand", "ro.vendor.nothing.camera.identity.brand"},
+    };
+    for (const auto& property : identity_props) {
+      if (strcmp(name, property.name) != 0) continue;
+      prop_area* pa = contexts_->GetPropAreaForName(property.identity_name);
+      const prop_info* pi = pa ? pa->find(property.identity_name) : nullptr;
+      if (pi && pi->value[0] != '\0') return pi;
+      break;
+    }
   }
 
   // if appcompat override is enabled, we first try finding APPCOMPAT_PREFIXed system
